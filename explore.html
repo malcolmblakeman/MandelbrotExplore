@@ -1,0 +1,2088 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Mandelbrot — Explore</title>
+<style>
+  :root {
+    --ink: #f4f4f1;
+    --muted: rgba(244, 244, 241, .56);
+    --muted-2: rgba(244, 244, 241, .34);
+    --line: rgba(244, 244, 241, .17);
+    --line-strong: rgba(244, 244, 241, .34);
+    --panel: rgba(7, 7, 7, .9);
+    --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; background: #000; overflow: hidden; }
+  body { color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+
+  body.clean-view .topbar,
+  body.clean-view .hint,
+  body.clean-view .hud,
+  body.clean-view .crosshair {
+    display: none !important;
+  }
+
+  button, input { font: inherit; }
+  button { color: inherit; }
+  [hidden] { display: none !important; }
+
+  #glcanvas,
+  #cpucanvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background: #000;
+    pointer-events: none;
+  }
+
+  #glcanvas { z-index: 2; }
+  #cpucanvas { z-index: 1; }
+
+  #surface {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    cursor: grab;
+    touch-action: none;
+    outline: none;
+  }
+
+  #surface.dragging { cursor: grabbing; }
+  #surface.rotating { cursor: ew-resize; }
+
+  .topbar {
+    position: fixed;
+    z-index: 10;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 20px 22px 26px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, .62), transparent);
+  }
+
+  .brand { pointer-events: auto; }
+
+  .eyebrow {
+    margin: 0 0 5px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    line-height: 1;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(20px, 2.2vw, 30px);
+    line-height: 1;
+    font-weight: 540;
+    letter-spacing: -.045em;
+  }
+
+  h1 span { color: var(--muted); font-weight: 300; }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    pointer-events: auto;
+  }
+
+  .ui-btn {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: rgba(0, 0, 0, .34);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+
+  .ui-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255, 255, 255, .055); }
+  .ui-btn.active { color: #000; background: var(--ink); border-color: var(--ink); }
+
+  .hud {
+    position: fixed;
+    z-index: 8;
+    left: 22px;
+    bottom: 20px;
+    max-width: min(700px, calc(100vw - 44px));
+    padding: 10px 12px;
+    border-left: 1px solid var(--line-strong);
+    background: linear-gradient(to right, rgba(0, 0, 0, .52), transparent);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 1.65;
+    letter-spacing: .015em;
+    pointer-events: none;
+    user-select: text;
+  }
+
+  .hud strong { color: var(--ink); font-weight: 500; }
+  .hud .quote { color: var(--muted-2); }
+
+  .hint {
+    position: fixed;
+    z-index: 8;
+    right: 22px;
+    bottom: 20px;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .03em;
+    text-align: right;
+    pointer-events: none;
+    line-height: 1.7;
+  }
+
+  .crosshair {
+    position: fixed;
+    z-index: 7;
+    left: 50%;
+    top: 50%;
+    width: 21px;
+    height: 21px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: .35;
+    mix-blend-mode: difference;
+  }
+
+  .crosshair::before,
+  .crosshair::after {
+    content: "";
+    position: absolute;
+    background: #fff;
+  }
+
+  .crosshair::before { left: 10px; top: 0; width: 1px; height: 21px; }
+  .crosshair::after { left: 0; top: 10px; width: 21px; height: 1px; }
+
+  .panel {
+    position: fixed;
+    z-index: 20;
+    top: 72px;
+    right: 20px;
+    width: min(350px, calc(100vw - 40px));
+    max-height: calc(100vh - 100px);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--panel);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, .55);
+    backdrop-filter: blur(16px);
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 13px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+  }
+
+  .panel-head strong { color: var(--ink); font-weight: 500; }
+
+  .panel-close {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .panel-close:hover { color: var(--ink); border-color: var(--line-strong); }
+
+  .navigate-box {
+    padding: 11px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .nav-title {
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+  }
+
+  .nav-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    gap: 5px;
+    align-items: end;
+  }
+
+  .nav-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .nav-field span {
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 7px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  .nav-field input {
+    width: 100%;
+    height: 28px;
+    min-width: 0;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, .025);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 8px;
+    outline: none;
+  }
+
+  .nav-field input:focus { border-color: var(--line-strong); }
+
+  .nav-go {
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 8px;
+    cursor: pointer;
+  }
+
+  .nav-go:hover { background: rgba(255, 255, 255, .07); }
+
+  .upload-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+  }
+
+  .upload-row .ui-btn { min-height: 24px; padding: 0 8px; font-size: 7px; }
+  .upload-row span { color: var(--muted-2); font-family: var(--mono); font-size: 7px; }
+
+  .points-tools {
+    display: flex;
+    gap: 5px;
+    padding: 10px 11px 7px;
+    flex-wrap: wrap;
+  }
+
+  .points-tools .ui-btn { flex: 1; min-width: 0; padding: 0 6px; font-size: 7.5px; }
+
+  .name-input {
+    width: calc(100% - 22px);
+    margin: 0 11px 8px;
+    height: 29px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .025);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 9px;
+    outline: none;
+  }
+
+  .name-input::placeholder { color: var(--muted-2); }
+  .name-input:focus { border-color: var(--line-strong); }
+
+  .select-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 11px 8px;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 7px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  .select-row span { flex: 1; }
+
+  .select-row button {
+    min-height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 7px;
+    cursor: pointer;
+  }
+
+  .select-row button:hover { color: var(--ink); border-color: var(--line-strong); }
+
+  .points-list {
+    min-height: 60px;
+    overflow: auto;
+    padding: 2px 8px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .point-row {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    border-bottom: 1px solid rgba(255, 255, 255, .055);
+  }
+
+  .point-row:last-child { border-bottom: 0; }
+
+  .point-go {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 6px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .point-go:hover { background: rgba(255, 255, 255, .035); }
+  .point-row.active .point-go { background: rgba(255, 255, 255, .075); }
+
+  .point-name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--ink);
+    font-size: 10.5px;
+    font-weight: 480;
+    letter-spacing: -.005em;
+  }
+
+  .point-meta {
+    flex: none;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 7.5px;
+    letter-spacing: .01em;
+    white-space: nowrap;
+  }
+
+  .point-row.active .point-meta { color: var(--muted); }
+
+  .point-pick {
+    flex: none;
+    width: 20px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
+  .point-pick input {
+    width: 11px;
+    height: 11px;
+    margin: 0;
+    accent-color: var(--ink);
+    cursor: pointer;
+  }
+
+  .point-badge {
+    margin-left: 5px;
+    padding: 1px 4px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 6px;
+    font-weight: 400;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    vertical-align: 1px;
+  }
+
+  .point-order {
+    flex: none;
+    width: 18px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .point-order button {
+    flex: 1;
+    width: 18px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 8px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .point-order button:hover { color: var(--ink); background: rgba(255, 255, 255, .045); }
+  .point-order button:disabled { opacity: .18; cursor: default; background: transparent; }
+
+  .point-copy {
+    flex: none;
+    width: 27px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--muted-2);
+    cursor: pointer;
+  }
+
+  .point-copy:hover { color: var(--ink); background: rgba(255, 255, 255, .045); }
+  .point-copy svg { display: block; }
+
+  .point-del {
+    flex: none;
+    width: 26px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .point-del:hover { color: var(--ink); background: rgba(255, 255, 255, .045); }
+
+  .points-empty {
+    padding: 20px 10px;
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 8px;
+    line-height: 1.6;
+  }
+
+  .panel-note {
+    padding: 9px 12px 11px;
+    border-top: 1px solid var(--line);
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size: 7.5px;
+    line-height: 1.55;
+    letter-spacing: .015em;
+  }
+
+  .status {
+    min-height: 14px;
+    color: var(--muted);
+  }
+
+  .help {
+    position: fixed;
+    z-index: 30;
+    left: 50%;
+    top: 50%;
+    width: min(520px, calc(100vw - 40px));
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: rgba(5, 5, 5, .94);
+    box-shadow: 0 40px 120px rgba(0, 0, 0, .65);
+    backdrop-filter: blur(18px);
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .help-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .help-body {
+    padding: 15px;
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    gap: 8px 16px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8.5px;
+    line-height: 1.5;
+  }
+
+  .help-body b { color: var(--ink); font-weight: 500; }
+
+  .loading {
+    position: fixed;
+    z-index: 50;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #000;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .loading .dot {
+    width: 5px;
+    height: 5px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--ink);
+    display: inline-block;
+    animation: pulse 1s steps(2, end) infinite;
+  }
+
+  @keyframes pulse { 50% { opacity: .2; } }
+
+  .loading.error { color: #ddd; font-size: 11px; letter-spacing: .04em; text-transform: none; line-height: 1.6; padding: 30px; text-align: center; }
+
+  @media (max-width: 720px) {
+    .topbar { padding: 15px 14px 22px; }
+    .actions .ui-btn { padding: 0 8px; font-size: 7px; }
+    .hud { left: 14px; bottom: 14px; font-size: 8px; }
+    .hint { display: none; }
+    .panel { top: 64px; right: 12px; width: calc(100vw - 24px); max-height: calc(100vh - 80px); }
+    .brand .eyebrow { display: none; }
+    h1 { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="cpucanvas" aria-hidden="true" hidden></canvas>
+<canvas id="glcanvas" aria-label="Interactive Mandelbrot explorer"></canvas>
+<div id="surface" tabindex="0" aria-label="Mandelbrot interaction surface"></div>
+
+<div class="crosshair" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <p class="eyebrow">Mandelbrot / live geometry</p>
+    <h1>Mandelbrot <span>Explorer</span></h1>
+  </div>
+  <div class="actions">
+    <button class="ui-btn" id="saveBtn" type="button">Save point</button>
+    <button class="ui-btn active" id="pointsBtn" type="button">Points</button>
+    <button class="ui-btn" id="helpBtn" type="button">?</button>
+  </div>
+</header>
+
+<div class="hud" id="hud">
+  <div><span class="quote">c</span> <strong id="hudCenter">—</strong></div>
+  <div><span class="quote">scale</span> <strong id="hudScale">—</strong> <span class="quote">·</span> <span class="quote">zoom</span> <strong id="hudZoom">—</strong> <span class="quote">·</span> <span class="quote">angle</span> <strong id="hudAngle">—</strong> <span class="quote">·</span> <span class="quote">iter</span> <strong id="hudIter">—</strong></div>
+  <div class="status" id="status"></div>
+</div>
+
+<div class="hint">
+  drag pan · ctrl locks axis<br>
+  right / shift-drag rotate · wheel / double-click zoom
+</div>
+
+<aside class="panel" id="pointsPanel" aria-label="Saved points">
+  <div class="panel-head">
+    <span>Points <strong id="pointCount">0</strong></span>
+    <button class="panel-close" id="panelCloseBtn" type="button" aria-label="Close points">×</button>
+  </div>
+
+  <div class="navigate-box">
+    <div class="nav-title">Navigate</div>
+    <div class="nav-grid">
+      <label class="nav-field"><span>scale</span><input id="navScale" type="text" inputmode="decimal" autocomplete="off" spellcheck="false"></label>
+      <label class="nav-field"><span>x / imag</span><input id="navX" type="text" inputmode="decimal" autocomplete="off" spellcheck="false"></label>
+      <label class="nav-field"><span>y / real</span><input id="navY" type="text" inputmode="decimal" autocomplete="off" spellcheck="false"></label>
+      <button class="nav-go" id="navGoBtn" type="button">Go</button>
+    </div>
+    <div class="upload-row">
+      <button class="ui-btn" id="uploadBtn" type="button">Upload JSON</button>
+      <span>point list from export</span>
+    </div>
+  </div>
+
+  <div class="points-tools">
+    <button class="ui-btn" id="panelSaveBtn" type="button">Save current</button>
+    <button class="ui-btn" id="exportBtn" type="button">Export</button>
+    <button class="ui-btn" id="defaultsToggleBtn" type="button">Hide defaults</button>
+  </div>
+
+  <input class="name-input" id="pointName" type="text" placeholder="point name (optional)" autocomplete="off" spellcheck="false">
+  <div class="select-row">
+    <span>Export selected</span>
+    <button id="selectAllBtn" type="button">All</button>
+    <button id="selectNoneBtn" type="button">None</button>
+  </div>
+  <div class="points-list" id="pointsList"></div>
+
+  <div class="panel-note">
+    <span class="status" id="panelStatus">Six keyframes from editor.html are loaded.</span><br>
+    Copy gives <strong>scale x y rot</strong> · x is imaginary, y is real.
+    <button class="ui-btn" id="defaultsBtn" type="button" style="margin-top:7px; min-height:24px; font-size:7px;">Load editor keyframes</button>
+  </div>
+
+  <input type="file" id="importFile" accept=".json,application/json" hidden>
+</aside>
+
+<div class="help" id="helpPanel" hidden>
+  <div class="help-head">
+    <span>Info / controls</span>
+    <button class="panel-close" id="helpCloseBtn" type="button" aria-label="Close info">×</button>
+  </div>
+  <div class="help-body">
+    <b>drag</b><span>pan · hold ctrl to lock to one axis</span>
+    <b>right / shift-drag</b><span>rotate around center</span>
+    <b>wheel</b><span>zoom at cursor</span>
+    <b>double-click</b><span>zoom in at center (shift: out)</span>
+    <b>arrow keys</b><span>left/right: imaginary · up/down: real</span>
+    <b>+ / −</b><span>zoom at center</span>
+    <b>Q / E</b><span>rotate</span>
+    <b>T</b><span>invert black / white</span>
+    <b>click point</b><span>jump to saved view</span>
+    <b>checkbox</b><span>include point in export</span>
+    <b>copy icon</b><span>copy scale x y rot</span>
+    <b>navigate</b><span>type scale, x, y or upload JSON</span>
+    <b>S</b><span>save point + copy values</span>
+    <b>P</b><span>points panel</span>
+    <b>I</b><span>this info panel</span>
+    <b>H</b><span>hide HUD, title and hints</span>
+    <b>R</b><span>reset view</span>
+    <b>F</b><span>fullscreen</span>
+    <b>deep view</b><span>CPU only below scale 5e-5</span>
+    <b>pause</b><span>full CPU pass after 0.5s</span>
+    <b>?</b><span>this info panel</span>
+  </div>
+</div>
+
+<div class="loading" id="loading"><span><span class="dot"></span>initialising webgl2</span></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const canvas = $("glcanvas");
+  const cpuCanvas = $("cpucanvas");
+  const cpuCtx = cpuCanvas.getContext("2d", { alpha: false });
+  const surface = $("surface");
+  const loading = $("loading");
+
+  const MIN_SCALE = 1e-13;
+  const MAX_SCALE = 120;
+  // Below this scale the GPU is not used at all. CPU renders a fast preview
+  // first, then a full-quality float64 pass once the view has been still.
+  const CPU_THRESHOLD = 5e-5;
+  const CPU_FULL_DELAY = 500;
+  const DEFAULT_VIEW = { cx: -0.6, cy: 0, scale: 3.0, angle: 0 };
+  const STORE_POINTS = "mandelbrot-explore.points.v1";
+  const STORE_VIEW = "mandelbrot-explore.view.v1";
+  const STORE_HIDE_DEFAULTS = "mandelbrot-explore.hideDefaults.v1";
+
+  // Camera states recovered for editor.html. These are the validation points.
+  const EDITOR_POINTS = [
+    { name: "Buddhabrot", cx: -1.71, cy: 0, scale: 7.0, angle: 0 },
+    { name: "Column", cx: -1.749193627451, cy: -0.000291666667, scale: 1.4 / 3.9, angle: 0 },
+    { name: "Carrot", cx: -1.75, cy: 0, scale: 1.4 / 127, angle: 0 },
+    { name: "Filigree", cx: -1.749193627451, cy: -0.000291666667, scale: 1.4 / 2040, angle: 0 },
+    { name: "Extruding Spiral", cx: -1.748994, cy: -0.000493, scale: 1.5e-5, angle: 0 },
+    { name: "Queue", cx: -1.748992, cy: -0.000493, scale: 1e-6, angle: 0 }
+  ].map(p => ({ ...p, default: true, include: true }));
+
+  const state = {
+    cx: DEFAULT_VIEW.cx,
+    cy: DEFAULT_VIEW.cy,
+    scale: DEFAULT_VIEW.scale,
+    angle: DEFAULT_VIEW.angle,
+    invert: false,
+    points: [],
+    activePoint: null,
+    hideDefaults: false,
+    quality: "full",
+    maxIter: 0
+  };
+
+  let gl = null;
+  let fastProgram = null;
+  let fastLoc = null;
+  let vertexBuffer = null;
+  let raf = 0;
+  let fallbackRender = 0;
+  let idleTimer = 0;
+  let persistTimer = 0;
+  let drag = null;
+  const activePointers = new Map();
+
+  let cpuWorkers = [];
+  let cpuWorkerURL = null;
+  let cpuActive = null;
+  let cpuPending = null;
+  let cpuJobSeq = 0;
+  let cpuLastSignature = null;
+  let lastStatus = "Drag to pan · ctrl locks axis · wheel or double-click zoom.";
+
+  /* ── tiny DOM helpers ─────────────────────────────────── */
+
+  function setStatus(text) {
+    lastStatus = text || "Ready.";
+    $("status").textContent = text || "";
+    $("panelStatus").textContent = lastStatus;
+  }
+
+  function fmt(n, digits = 14) {
+    if (!Number.isFinite(n)) return "—";
+    const a = Math.abs(n);
+    if (a !== 0 && (a < 1e-5 || a >= 1e6)) return n.toExponential(8);
+    return n.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  function coordString(n) {
+    return Number(n).toString();
+  }
+
+  function pointScaleLabel(scale, angle = 0) {
+    return `scale ${scale.toExponential(3)} · ${Number(angle).toFixed(1)}°`;
+  }
+
+  // Clipboard order is scale, then x (imaginary), then y (real), then rot.
+  function pointValues(p) {
+    return `${coordString(p.scale)} ${coordString(p.cy)} ${coordString(p.cx)} ${coordString(p.angle)}`;
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "-1000px";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function copyPointValues(p, label) {
+    const text = pointValues(p);
+    const ok = await copyText(text);
+    setStatus(ok ? `${label || "Copied"}: ${text}` : `Copy failed. Values: ${text}`);
+    return ok;
+  }
+
+  function syncNavigateFields() {
+    const pairs = [
+      ["navScale", state.scale],
+      ["navX", state.cy],
+      ["navY", state.cx]
+    ];
+    for (const [id, value] of pairs) {
+      const el = $(id);
+      if (document.activeElement !== el) el.value = coordString(value);
+    }
+  }
+
+  /* ── persistence ─────────────────────────────────────── */
+
+  function loadStoredPoints() {
+    try {
+      const raw = localStorage.getItem(STORE_POINTS);
+      if (!raw) return EDITOR_POINTS.map(p => ({ ...p }));
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return EDITOR_POINTS.map(p => ({ ...p }));
+      const points = data.map(rawPoint => {
+        const p = normalizePoint(rawPoint);
+        if (!p) return null;
+        // Migrate older stored lists that predate default/include flags.
+        if (rawPoint.default === undefined) {
+          const d = EDITOR_POINTS.find(x =>
+            x.name === p.name &&
+            Math.abs(x.cx - p.cx) < 1e-12 &&
+            Math.abs(x.cy - p.cy) < 1e-12 &&
+            Math.abs(x.scale - p.scale) <= Math.max(1e-15, x.scale * 1e-9)
+          );
+          if (d) p.default = true;
+        }
+        if (rawPoint.include === undefined) p.include = true;
+        return p;
+      }).filter(Boolean);
+      return points.length ? points : EDITOR_POINTS.map(p => ({ ...p }));
+    } catch (e) {
+      return EDITOR_POINTS.map(p => ({ ...p }));
+    }
+  }
+
+  function loadHideDefaults() {
+    try { return localStorage.getItem(STORE_HIDE_DEFAULTS) === "1"; } catch (e) { return false; }
+  }
+
+  function persistHideDefaults() {
+    try { localStorage.setItem(STORE_HIDE_DEFAULTS, state.hideDefaults ? "1" : "0"); } catch (e) {}
+  }
+
+  function loadStoredView() {
+    try {
+      const raw = localStorage.getItem(STORE_VIEW);
+      if (!raw) return null;
+      const v = JSON.parse(raw);
+      if (!Number.isFinite(Number(v.cx)) || !Number.isFinite(Number(v.cy)) ||
+          !Number.isFinite(Number(v.scale)) || Number(v.scale) <= 0) return null;
+      return {
+        cx: Number(v.cx),
+        cy: Number(v.cy),
+        scale: Math.min(MAX_SCALE, Math.max(MIN_SCALE, Number(v.scale))),
+        angle: Number.isFinite(Number(v.angle)) ? Number(v.angle) : 0
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function persistPoints() {
+    try { localStorage.setItem(STORE_POINTS, JSON.stringify(state.points)); } catch (e) {}
+  }
+
+  function persistView() {
+    try {
+      localStorage.setItem(STORE_VIEW, JSON.stringify({
+        cx: state.cx, cy: state.cy, scale: state.scale, angle: state.angle
+      }));
+    } catch (e) {}
+  }
+
+  function schedulePersist() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistView, 250);
+  }
+
+  function normalizePoint(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const cx = Number(raw.cx ?? raw.re ?? raw.real ?? raw.centerRe);
+    const cy = Number(raw.cy ?? raw.im ?? raw.imag ?? raw.centerIm);
+    const scale = Number(raw.scale ?? raw.height ?? raw.viewHeight ?? raw.zoom);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(scale) || scale <= 0) return null;
+    const angleRaw = raw.rot ?? raw.rotation ?? raw.angle;
+    return {
+      name: String(raw.name || "Point").slice(0, 80),
+      cx,
+      cy,
+      scale: Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale)),
+      angle: Number.isFinite(Number(angleRaw)) ? Number(angleRaw) : 0,
+      maxIter: Number.isFinite(Number(raw.maxIter)) ? Math.max(0, Number(raw.maxIter)) : 0,
+      default: raw.default === true,
+      include: raw.include !== false
+    };
+  }
+
+  /* ── camera / geometry mapping ───────────────────────── */
+
+  function currentIterations() {
+    if (state.maxIter > 0) return Math.round(state.maxIter);
+    const z = Math.max(1e-15, state.scale);
+    return Math.round(Math.min(5200, Math.max(400, 1400 + 600 * Math.log10(1.4 / z))));
+  }
+
+  // Cache the trigonometry for the current camera angle. It is recomputed
+  // only when the view rotates, then reused by pan, zoom, and arrow keys.
+  let viewBasis = { angle: NaN, ca: 1, sa: 0 };
+
+  function snapUnit(v) {
+    if (Math.abs(v) < 1e-12) return 0;
+    if (Math.abs(v - 1) < 1e-12) return 1;
+    if (Math.abs(v + 1) < 1e-12) return -1;
+    return v;
+  }
+
+  function rotationBasis() {
+    if (viewBasis.angle !== state.angle) {
+      const a = state.angle * Math.PI / 180;
+      viewBasis = {
+        angle: state.angle,
+        ca: snapUnit(Math.cos(a)),
+        sa: snapUnit(Math.sin(a))
+      };
+    }
+    return viewBasis;
+  }
+
+  function trigFor(angle) {
+    if (angle === state.angle) return rotationBasis();
+    const a = angle * Math.PI / 180;
+    return { ca: snapUnit(Math.cos(a)), sa: snapUnit(Math.sin(a)) };
+  }
+
+  function screenOffsetToComplex(sx, sy, scale = state.scale, angle = state.angle) {
+    const h = window.innerHeight;
+    const nx = (sx - window.innerWidth * 0.5) / h;
+    const ny = (sy - h * 0.5) / h;
+    const { ca, sa } = trigFor(angle);
+    const dyr = ny * ca - nx * sa;
+    const dxr = nx * ca + ny * sa;
+    return { re: dyr * scale, im: -dxr * scale };
+  }
+
+  function screenToComplex(sx, sy, scale = state.scale, angle = state.angle, cx = state.cx, cy = state.cy) {
+    const o = screenOffsetToComplex(sx, sy, scale, angle);
+    return { re: cx + o.re, im: cy + o.im };
+  }
+
+  // A screen-space drag delta maps to a complex delta. This is deliberately
+  // separate from screenOffsetToComplex, which measures from the canvas center.
+  function screenDeltaToComplex(dx, dy, scale = state.scale, angle = state.angle) {
+    const h = window.innerHeight;
+    const nx = dx / h;
+    const ny = dy / h;
+    const { ca, sa } = trigFor(angle);
+    const dyr = ny * ca - nx * sa;
+    const dxr = nx * ca + ny * sa;
+    return { re: dyr * scale, im: -dxr * scale };
+  }
+
+  function zoomAt(sx, sy, factor) {
+    const before = screenToComplex(sx, sy);
+    const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.scale * factor));
+    if (nextScale === state.scale) return;
+    const off = screenOffsetToComplex(sx, sy, nextScale, state.angle);
+    state.scale = nextScale;
+    state.cx = before.re - off.re;
+    state.cy = before.im - off.im;
+    state.activePoint = null;
+    afterCameraChange();
+  }
+
+  function panScreen(dx, dy, fromCx, fromCy) {
+    const o = screenDeltaToComplex(dx, dy);
+    state.cx = fromCx - o.re;
+    state.cy = fromCy - o.im;
+    state.activePoint = null;
+    afterCameraChange();
+  }
+
+  // Arrow keys move the camera along screen axes. At 0 degrees this is
+  // exactly imaginary for left/right and real for up/down; when rotated the
+  // cached basis distributes that motion across both complex components.
+  function nudgeScreen(dx, dy) {
+    const o = screenDeltaToComplex(dx, dy);
+    state.cx += o.re;
+    state.cy += o.im;
+    state.activePoint = null;
+    afterCameraChange();
+  }
+
+  function rotateTo(angle) {
+    let a = angle % 360;
+    if (a < 0) a += 360;
+    state.angle = a;
+    state.activePoint = null;
+    afterCameraChange();
+  }
+
+  function afterCameraChange() {
+    updateHud();
+    syncNavigateFields();
+    cpuLastSignature = null;
+    setInteractive();
+    scheduleFull();
+    schedulePersist();
+  }
+
+  /* ── WebGL setup ──────────────────────────────────────── */
+
+  const VERTEX = `#version 300 es
+    precision highp float;
+    in vec2 aPos;
+    void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
+  `;
+
+  const FAST_FRAGMENT = `#version 300 es
+    precision highp float;
+    uniform vec2 uRes;
+    uniform vec2 uCenter;
+    uniform float uScale;
+    uniform float uCos;
+    uniform float uSin;
+    uniform int uMaxIter;
+    uniform bool uInvert;
+    out vec4 outColor;
+
+    void main() {
+      vec2 frag = gl_FragCoord.xy;
+      float nx = (frag.x - 0.5 * uRes.x) / uRes.y;
+      float ny = (0.5 * uRes.y - frag.y) / uRes.y;
+      float dyr = ny * uCos - nx * uSin;
+      float dxr = nx * uCos + ny * uSin;
+      float cr = uCenter.x + dyr * uScale;
+      float ci = uCenter.y - dxr * uScale;
+      float zr = 0.0;
+      float zi = 0.0;
+      float dzr = 0.0;
+      float dzi = 0.0;
+      float m2 = 0.0;
+      bool escaped = false;
+      int iter = 0;
+      for (iter = 0; iter < uMaxIter; iter++) {
+        float ndzr = 2.0 * (zr * dzr - zi * dzi) + 1.0;
+        float ndzi = 2.0 * (zr * dzi + zi * dzr);
+        dzr = ndzr;
+        dzi = ndzi;
+        float zr2 = zr * zr;
+        float zi2 = zi * zi;
+        zi = 2.0 * zr * zi + ci;
+        zr = zr2 - zi2 + cr;
+        m2 = zr * zr + zi * zi;
+        if (m2 > 16.0) { escaped = true; break; }
+      }
+      float shade = 0.0;
+      if (escaped) {
+        float mod = sqrt(m2);
+        float dmag = sqrt(dzr * dzr + dzi * dzi);
+        float dist = dmag > 1e-12 ? mod * log(mod) / dmag : 0.0;
+        float px = dist * (uRes.y / uScale);
+        shade = max(exp(-px / 1.35), exp(-px / 4.5) * 0.16);
+      }
+      if (uInvert) shade = 1.0 - shade;
+      outColor = vec4(vec3(shade), 1.0);
+    }
+  `;
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(sh) || "Shader compile error");
+    }
+    return sh;
+  }
+
+  function makeProgram(fragment) {
+    const program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragment));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(program) || "Shader link error");
+    }
+    return program;
+  }
+
+  function initGL() {
+    gl = canvas.getContext("webgl2", {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance"
+    });
+    if (!gl) throw new Error("WebGL2 is unavailable in this browser.");
+
+    fastProgram = makeProgram(FAST_FRAGMENT);
+
+    fastLoc = {
+      res: gl.getUniformLocation(fastProgram, "uRes"),
+      center: gl.getUniformLocation(fastProgram, "uCenter"),
+      scale: gl.getUniformLocation(fastProgram, "uScale"),
+      cos: gl.getUniformLocation(fastProgram, "uCos"),
+      sin: gl.getUniformLocation(fastProgram, "uSin"),
+      iter: gl.getUniformLocation(fastProgram, "uMaxIter"),
+      invert: gl.getUniformLocation(fastProgram, "uInvert")
+    };
+
+
+    vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 1, -1, -1, 1, 1, 1
+    ]), gl.STATIC_DRAW);
+  }
+
+  function bindGeometry(program) {
+    const aPos = gl.getAttribLocation(program, "aPos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  function targetSize(interactive) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+    const targetMax = 1500;
+    const baseW = w * dpr;
+    const baseH = h * dpr;
+    const down = Math.min(1, targetMax / Math.max(baseW, baseH));
+    const q = interactive ? 0.6 : 1.0;
+    return {
+      width: Math.max(1, Math.round(baseW * down * q)),
+      height: Math.max(1, Math.round(baseH * down * q))
+    };
+  }
+
+  function resizeCanvas() {
+    const size = targetSize(state.quality === "interactive");
+    if (canvas.width !== size.width || canvas.height !== size.height) {
+      canvas.width = size.width;
+      canvas.height = size.height;
+    }
+  }
+
+  // The CPU canvas is sized only when the CPU takes over. Keeping it out of
+  // the GPU resizing path prevents a visible GPU/interactive resize from
+  // clearing the finished CPU image.
+  function ensureCpuCanvasSize() {
+    const size = targetSize(false);
+    if (cpuCanvas.width !== size.width || cpuCanvas.height !== size.height) {
+      if (cpuActive || cpuPending) cancelCpuJobs();
+      cpuLastSignature = null;
+      cpuCanvas.width = size.width;
+      cpuCanvas.height = size.height;
+    }
+    return size;
+  }
+
+  function render() {
+    if (!gl) return;
+    updateHud();
+
+    if (state.scale < CPU_THRESHOLD) {
+      ensureCpuCanvasSize();
+      const switching = cpuCanvas.hidden;
+      cpuCanvas.hidden = false;
+      canvas.hidden = true;
+      if (switching) $("status").textContent = "Rendering deep view…";
+      requestCpuRender();
+      return;
+    }
+
+    resizeCanvas();
+    cpuLastSignature = null;
+    if (!cpuCanvas.hidden) {
+      cpuCanvas.hidden = true;
+      canvas.hidden = false;
+    }
+    if (cpuActive || cpuPending) cancelCpuJobs();
+
+    const width = canvas.width;
+    const height = canvas.height;
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    const { ca, sa } = rotationBasis();
+    const iter = state.quality === "interactive"
+      ? Math.min(currentIterations(), 1200)
+      : currentIterations();
+
+    gl.useProgram(fastProgram);
+    bindGeometry(fastProgram);
+    gl.uniform2f(fastLoc.res, width, height);
+    gl.uniform1f(fastLoc.scale, state.scale);
+    gl.uniform1f(fastLoc.cos, ca);
+    gl.uniform1f(fastLoc.sin, sa);
+    gl.uniform1i(fastLoc.iter, iter);
+    gl.uniform1i(fastLoc.invert, state.invert ? 1 : 0);
+    gl.uniform2f(fastLoc.center, Math.fround(state.cx), Math.fround(state.cy));
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  /* Deep views use the CPU in float64. This avoids the precision wall of
+     float32/double-single GPUs and matches the editor renders exactly. */
+  const CPU_WORKER_SOURCE = `
+    self.onmessage = function (event) {
+      const job = event.data;
+      const id = job.id;
+      const w = job.width;
+      const h = job.height;
+      const y0 = job.y0;
+      const y1 = job.y1;
+      const cx = job.cx;
+      const cy = job.cy;
+      const scale = job.scale;
+      const maxIter = job.maxIter;
+      const invert = job.invert;
+      const angle = job.angle * Math.PI / 180;
+      const ca = Math.cos(angle);
+      const sa = Math.sin(angle);
+      const invH = 1 / h;
+      const pxPerUnit = h / scale;
+      const rows = y1 - y0;
+      const buf = new Uint8ClampedArray(rows * w * 4);
+      const nxArr = new Float64Array(w);
+      for (let x = 0; x < w; x++) nxArr[x] = (x + 0.5 - w * 0.5) * invH;
+      let o = 0;
+      for (let y = y0; y < y1; y++) {
+        const ny = (y + 0.5 - h * 0.5) * invH;
+        const nyCa = ny * ca;
+        const nySa = ny * sa;
+        for (let x = 0; x < w; x++) {
+          const nx = nxArr[x];
+          const dyr = nyCa - nx * sa;
+          const dxr = nx * ca + nySa;
+          const cr = cx + dyr * scale;
+          const ci = cy - dxr * scale;
+
+          const q = (cr - 0.25) * (cr - 0.25) + ci * ci;
+          const inCardioid = q * (q + (cr - 0.25)) <= 0.25 * ci * ci;
+          const inBulb = (cr + 1) * (cr + 1) + ci * ci <= 0.0625;
+
+          let shade = 0;
+          if (!inCardioid && !inBulb) {
+            let zr = 0, zi = 0, dzr = 0, dzi = 0, m2 = 0;
+            let escaped = false;
+            for (let iter = 0; iter < maxIter; iter++) {
+              const ndzr = 2 * (zr * dzr - zi * dzi) + 1;
+              const ndzi = 2 * (zr * dzi + zi * dzr);
+              dzr = ndzr;
+              dzi = ndzi;
+              const zr2 = zr * zr;
+              const zi2 = zi * zi;
+              zi = 2 * zr * zi + ci;
+              zr = zr2 - zi2 + cr;
+              m2 = zr * zr + zi * zi;
+              if (m2 > 16) { escaped = true; break; }
+            }
+            if (escaped) {
+              const mod = Math.sqrt(m2);
+              const dmag = Math.sqrt(dzr * dzr + dzi * dzi);
+              const dist = dmag > 1e-12 ? mod * Math.log(mod) / dmag : 0;
+              const px = dist * pxPerUnit;
+              shade = Math.max(Math.exp(-px / 1.35), Math.exp(-px / 4.5) * 0.16);
+            }
+          }
+          let v = shade * 255;
+          if (invert) v = 255 - v;
+          buf[o++] = v;
+          buf[o++] = v;
+          buf[o++] = v;
+          buf[o++] = 255;
+        }
+      }
+      self.postMessage({ id, y0, y1, buf }, [buf.buffer]);
+    };
+  `;
+
+  function ensureCpuWorkers() {
+    if (cpuWorkers.length) return;
+    if (!cpuWorkerURL) {
+      cpuWorkerURL = URL.createObjectURL(new Blob([CPU_WORKER_SOURCE], { type: "text/javascript" }));
+    }
+    const count = Math.max(2, Math.min(8, navigator.hardwareConcurrency || 4));
+    for (let i = 0; i < count; i++) {
+      const worker = new Worker(cpuWorkerURL);
+      worker.onmessage = cpuWorkerMessage;
+      worker.onerror = event => {
+        console.error("CPU renderer worker failed:", event.message || event);
+        cancelCpuJobs();
+        setStatus("CPU renderer stopped. Move the view to retry.");
+      };
+      cpuWorkers.push(worker);
+    }
+  }
+
+  function cancelCpuJobs() {
+    const restoreStatus = cpuActive ? cpuActive.previousStatus : null;
+    cpuWorkers.forEach(worker => worker.terminate());
+    cpuWorkers = [];
+    cpuActive = null;
+    cpuPending = null;
+    if (restoreStatus) setStatus(restoreStatus);
+  }
+
+  function cpuWorkerMessage(event) {
+    const { id, y0, y1, buf } = event.data;
+    if (!cpuActive || id !== cpuActive.id) return;
+    const job = cpuActive;
+    const chunk = new ImageData(new Uint8ClampedArray(buf), job.width, y1 - y0);
+    cpuCtx.putImageData(chunk, 0, y0);
+    job.remaining -= 1;
+    if (job.remaining > 0) return;
+
+    cpuActive = null;
+    cpuLastSignature = job.signature;
+    if (cpuPending) {
+      const next = cpuPending;
+      cpuPending = null;
+      startCpuJob(next);
+    } else if (job.mode === "full") {
+      setStatus(job.previousStatus);
+    }
+  }
+
+  function startCpuJob(job) {
+    ensureCpuWorkers();
+    cpuActive = job;
+    if (cpuCanvas.width !== job.width || cpuCanvas.height !== job.height) {
+      cpuCanvas.width = job.width;
+      cpuCanvas.height = job.height;
+    }
+    job.previousStatus = lastStatus;
+    const n = Math.min(cpuWorkers.length, job.height);
+    const rows = Math.ceil(job.height / n);
+    const chunks = [];
+    for (let i = 0; i < n; i++) {
+      const y0 = i * rows;
+      if (y0 >= job.height) break;
+      chunks.push({ y0, y1: Math.min(job.height, y0 + rows) });
+    }
+    job.remaining = chunks.length;
+    if (job.mode === "full") $("status").textContent = "Rendering deep view…";
+
+    cpuCanvas.hidden = false;
+    canvas.hidden = true;
+    chunks.forEach((chunk, i) => {
+      cpuWorkers[i].postMessage({
+        id: job.id,
+        width: job.width,
+        height: job.height,
+        y0: chunk.y0,
+        y1: chunk.y1,
+        cx: job.cx,
+        cy: job.cy,
+        scale: job.scale,
+        angle: job.angle,
+        maxIter: job.maxIter,
+        invert: job.invert
+      });
+    });
+  }
+
+  function enqueueCpuJob(job) {
+    if (cpuActive) {
+      // A running full pass must not block a newer view. Preview passes are
+      // short, so let them finish and then run only the latest queued view.
+      if (cpuActive.mode === "full") {
+        cancelCpuJobs();
+        startCpuJob(job);
+      } else {
+        cpuPending = job;
+      }
+      return;
+    }
+    startCpuJob(job);
+  }
+
+  function requestCpuRender() {
+    if (state.scale >= CPU_THRESHOLD) return;
+    const width = cpuCanvas.width;
+    const height = cpuCanvas.height;
+    if (!width || !height) return;
+    const fullIter = currentIterations();
+    const interactive = state.quality === "interactive" && fullIter > 800;
+    const job = {
+      id: ++cpuJobSeq,
+      width,
+      height,
+      cx: state.cx,
+      cy: state.cy,
+      scale: state.scale,
+      angle: state.angle,
+      maxIter: interactive ? 800 : fullIter,
+      invert: state.invert,
+      mode: interactive ? "interactive" : "full"
+    };
+    const signature = [
+      job.width, job.height, job.cx, job.cy, job.scale,
+      job.angle, job.maxIter, job.invert
+    ].join("|");
+    if (cpuActive && cpuActive.signature === signature) return;
+    if (cpuPending && cpuPending.signature === signature) return;
+    if (!cpuActive && !cpuPending && signature === cpuLastSignature) return;
+    job.signature = signature;
+    enqueueCpuJob(job);
+  }
+
+  function requestRender() {
+    if (raf) return;
+    // If the window is occluded, browsers pause requestAnimationFrame. The
+    // timeout keeps the view in sync without double-drawing in normal use.
+    raf = requestAnimationFrame(() => {
+      clearTimeout(fallbackRender);
+      fallbackRender = 0;
+      raf = 0;
+      render();
+    });
+    clearTimeout(fallbackRender);
+    fallbackRender = setTimeout(() => {
+      if (!raf) return;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      fallbackRender = 0;
+      render();
+    }, 160);
+  }
+
+  function setInteractive() {
+    if (state.quality === "interactive") {
+      requestRender();
+      return;
+    }
+    state.quality = "interactive";
+    requestRender();
+  }
+
+  function scheduleFull() {
+    clearTimeout(idleTimer);
+    const delay = state.scale < CPU_THRESHOLD ? CPU_FULL_DELAY : 180;
+    idleTimer = setTimeout(() => {
+      state.quality = "full";
+      requestRender();
+    }, delay);
+  }
+
+  function updateHud() {
+    const cx = state.cx;
+    const cy = state.cy;
+    const sign = cy < 0 ? "−" : "+";
+    $("hudCenter").textContent = `${fmt(cx)} ${sign} ${fmt(Math.abs(cy))}i`;
+    $("hudScale").textContent = fmt(state.scale);
+    $("hudZoom").textContent = `${fmt(3.0 / state.scale, 3)}×`;
+    $("hudAngle").textContent = `${state.angle.toFixed(2)}°`;
+    $("hudIter").textContent = String(currentIterations());
+  }
+
+  /* ── point list ──────────────────────────────────────── */
+
+  function setView(p, source = "point") {
+    state.cx = Number(p.cx);
+    state.cy = Number(p.cy);
+    state.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Number(p.scale)));
+    state.angle = Number.isFinite(Number(p.angle)) ? Number(p.angle) : 0;
+    state.maxIter = Number.isFinite(Number(p.maxIter)) ? Math.max(0, Number(p.maxIter)) : 0;
+    state.activePoint = source === "point" ? (p.name || null) : null;
+    state.quality = "full";
+    cpuLastSignature = null;
+    updateHud();
+    syncNavigateFields();
+    requestRender();
+    schedulePersist();
+    setStatus(source === "point" ? `Point: ${p.name || "unnamed"}.` : "View restored.");
+  }
+
+  // (scale, x, y) where x is imaginary (cy) and y is real (cx).
+  function navigateToInputs() {
+    const scale = Number($("navScale").value);
+    const x = Number($("navX").value);
+    const y = Number($("navY").value);
+    if (!Number.isFinite(scale) || !Number.isFinite(x) || !Number.isFinite(y) || scale <= 0) {
+      setStatus("Navigate needs numeric scale > 0, x, and y.");
+      return;
+    }
+    state.cx = y;
+    state.cy = x;
+    state.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+    state.angle = 0;
+    state.maxIter = 0;
+    state.activePoint = null;
+    state.quality = "full";
+    cpuLastSignature = null;
+    updateHud();
+    syncNavigateFields();
+    requestRender();
+    schedulePersist();
+    setStatus(`Navigated to scale ${coordString(state.scale)} · x ${coordString(state.cy)} · y ${coordString(state.cx)}.`);
+  }
+
+  function visiblePointEntries() {
+    return state.points
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => !(state.hideDefaults && p.default));
+  }
+
+  function pointCountLabel() {
+    const visible = visiblePointEntries().length;
+    return visible === state.points.length
+      ? String(visible)
+      : `${visible}/${state.points.length}`;
+  }
+
+  function renderPoints() {
+    $("pointCount").textContent = pointCountLabel();
+    const defaultsToggle = $("defaultsToggleBtn");
+    defaultsToggle.textContent = state.hideDefaults ? "Show defaults" : "Hide defaults";
+    defaultsToggle.classList.toggle("active", state.hideDefaults);
+    const list = $("pointsList");
+    const visible = visiblePointEntries();
+    if (!visible.length) {
+      list.innerHTML = `<div class="points-empty">No points shown.<br>${state.hideDefaults ? "Default keyframes are hidden." : "Use SAVE CURRENT or upload a JSON set."}</div>`;
+      return;
+    }
+    list.innerHTML = visible.map(({ p, i }) => `
+      <div class="point-row ${state.activePoint === p.name ? "active" : ""}">
+        <label class="point-pick" title="Include in export">
+          <input type="checkbox" data-include="${i}" ${p.include ? "checked" : ""} aria-label="Include ${escapeHtml(p.name)} in export">
+        </label>
+        <button class="point-go" type="button" data-point="${i}">
+          <span class="point-name">${escapeHtml(p.name)}${p.default ? '<span class="point-badge">default</span>' : ""}</span>
+          <span class="point-meta">${pointScaleLabel(p.scale, p.angle)}</span>
+        </button>
+        <div class="point-order">
+          <button type="button" data-up="${i}" ${p.default ? "disabled" : ""} aria-label="Move point up">↑</button>
+          <button type="button" data-down="${i}" ${p.default ? "disabled" : ""} aria-label="Move point down">↓</button>
+        </div>
+        <button class="point-copy" type="button" data-copy="${i}" aria-label="Copy scale x y rot" title="Copy scale x y rot">
+          <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+            <rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <path d="M3.5 10.5V3.5h7" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="square"/>
+          </svg>
+        </button>
+        <button class="point-del" type="button" data-del="${i}" aria-label="Delete point">×</button>
+      </div>
+    `).join("");
+  }
+
+  function movePoint(index, dir) {
+    const p = state.points[index];
+    if (!p || p.default) return;
+    let j = index + dir;
+    while (j >= 0 && j < state.points.length && state.points[j].default) j += dir;
+    if (j < 0 || j >= state.points.length) return;
+    [state.points[index], state.points[j]] = [state.points[j], state.points[index]];
+    persistPoints();
+    renderPoints();
+    setStatus(`Moved ${p.name}.`);
+  }
+
+  function setPointIncluded(index, included) {
+    const p = state.points[index];
+    if (!p) return;
+    p.include = !!included;
+    persistPoints();
+    const selected = state.points.filter(x => x.include && !(state.hideDefaults && x.default)).length;
+    setStatus(`${selected} point${selected === 1 ? "" : "s"} selected for export.`);
+  }
+
+  function selectVisible(include) {
+    const visible = visiblePointEntries();
+    visible.forEach(({ p }) => { p.include = include; });
+    persistPoints();
+    renderPoints();
+    setStatus(include ? "All visible points selected." : "All visible points deselected.");
+  }
+
+  function toggleDefaultPoints() {
+    state.hideDefaults = !state.hideDefaults;
+    if (state.hideDefaults) {
+      state.points.forEach(p => { if (p.default) p.include = false; });
+    }
+    persistHideDefaults();
+    persistPoints();
+    renderPoints();
+    setStatus(state.hideDefaults ? "Default keyframes hidden and excluded." : "Default keyframes shown.");
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function saveCurrentPoint() {
+    const input = $("pointName");
+    let name = input.value.trim();
+    if (!name) name = `View ${state.points.length + 1}`;
+    const point = {
+      name,
+      cx: state.cx,
+      cy: state.cy,
+      scale: state.scale,
+      angle: state.angle,
+      maxIter: state.maxIter,
+      default: false,
+      include: true
+    };
+    state.points.push(point);
+    state.activePoint = name;
+    input.value = "";
+    persistPoints();
+    renderPoints();
+    copyPointValues(point, `Saved ${name} · copied`);
+  }
+
+  function deletePoint(index) {
+    if (index < 0 || index >= state.points.length) return;
+    const name = state.points[index].name;
+    state.points.splice(index, 1);
+    if (state.activePoint === name) state.activePoint = null;
+    persistPoints();
+    renderPoints();
+    setStatus(`Deleted point: ${name}.`);
+  }
+
+  function loadEditorPoints() {
+    state.points = EDITOR_POINTS.map(p => ({ ...p }));
+    state.activePoint = null;
+    state.hideDefaults = false;
+    persistHideDefaults();
+    persistPoints();
+    renderPoints();
+    setStatus("Editor keyframes loaded.");
+  }
+
+  function exportPoints() {
+    const selected = state.points.filter(p =>
+      p.include && !(state.hideDefaults && p.default)
+    );
+    if (!selected.length) {
+      setStatus("Select at least one point to export.");
+      return;
+    }
+    const payload = {
+      version: 2,
+      source: "explore.html",
+      exported: new Date().toISOString(),
+      view: {
+        cx: coordString(state.cx),
+        cy: coordString(state.cy),
+        scale: coordString(state.scale),
+        rot: Number(Number(state.angle).toFixed(6)),
+        maxIter: state.maxIter
+      },
+      points: selected.map(p => ({
+        name: p.name,
+        cx: coordString(p.cx),
+        cy: coordString(p.cy),
+        scale: coordString(p.scale),
+        rot: Number(Number(p.angle).toFixed(6)),
+        maxIter: p.maxIter || 0
+      }))
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mandelbrot-points.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus(`Exported ${selected.length} selected point${selected.length === 1 ? "" : "s"}.`);
+  }
+
+  function importPointsFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result));
+        const raw = Array.isArray(data) ? data : (Array.isArray(data.points) ? data.points : null);
+        if (!raw) throw new Error("No points array");
+        const points = raw.map(normalizePoint).filter(Boolean)
+          .map(p => ({ ...p, default: false, include: true }));
+        if (!points.length) throw new Error("No valid points");
+        state.points = points;
+        state.activePoint = null;
+        state.hideDefaults = false;
+        persistHideDefaults();
+        persistPoints();
+        renderPoints();
+        if (!Array.isArray(data) && data.view) {
+          const v = normalizePoint({ ...data.view, name: "view" });
+          if (v) setView(v, "upload");
+        }
+        setStatus(`Loaded ${points.length} points from JSON.`);
+      } catch (error) {
+        console.error(error);
+        setStatus("Upload failed: invalid points JSON.");
+      }
+      $("importFile").value = "";
+    };
+    reader.onerror = () => setStatus("Upload failed: could not read file.");
+    reader.readAsText(file);
+  }
+
+  /* ── interaction ─────────────────────────────────────── */
+
+  function pointerPos(event) {
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  function startPan(event, p) {
+    drag = {
+      mode: (event.button === 2 || event.shiftKey || event.altKey) ? "rotate" : "pan",
+      startX: p.x,
+      startY: p.y,
+      cx: state.cx,
+      cy: state.cy,
+      angle: state.angle,
+      lockAxis: !!event.ctrlKey,
+      moved: false,
+      pointerAngle: Math.atan2(p.y - window.innerHeight * 0.5, p.x - window.innerWidth * 0.5)
+    };
+    surface.classList.add(drag.mode === "rotate" ? "rotating" : "dragging");
+  }
+
+  function twoPointerState() {
+    const pts = [...activePointers.values()];
+    if (pts.length < 2) return null;
+    const a = pts[0], b = pts[1];
+    return {
+      mid: { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 },
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      angle: Math.atan2(b.y - a.y, b.x - a.x)
+    };
+  }
+
+  function beginGesture() {
+    const t = twoPointerState();
+    if (!t) return;
+    const anchor = screenToComplex(t.mid.x, t.mid.y);
+    drag = {
+      mode: "gesture",
+      dist: t.dist,
+      angle: t.angle,
+      scale: state.scale,
+      angleCam: state.angle,
+      anchor,
+      moved: false
+    };
+  }
+
+  surface.addEventListener("pointerdown", event => {
+    if (event.pointerType === "mouse" && event.button !== 0 && event.button !== 2) return;
+    event.preventDefault();
+    surface.focus();
+    surface.setPointerCapture(event.pointerId);
+    const p = pointerPos(event);
+    activePointers.set(event.pointerId, p);
+    if (activePointers.size === 1) {
+      startPan(event, p);
+    } else if (activePointers.size === 2) {
+      beginGesture();
+    }
+  });
+
+  surface.addEventListener("pointermove", event => {
+    if (!activePointers.has(event.pointerId)) return;
+    const p = pointerPos(event);
+    activePointers.set(event.pointerId, p);
+
+    if (activePointers.size >= 2) {
+      if (!drag || drag.mode !== "gesture") beginGesture();
+      if (!drag || drag.mode !== "gesture") return;
+      const t = twoPointerState();
+      if (!t) return;
+      const factor = drag.dist / t.dist;
+      state.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, drag.scale * factor));
+      const deltaAngle = (t.angle - drag.angle) * 180 / Math.PI;
+      state.angle = (drag.angleCam - deltaAngle) % 360;
+      if (state.angle < 0) state.angle += 360;
+      const off = screenOffsetToComplex(t.mid.x, t.mid.y, state.scale, state.angle);
+      state.cx = drag.anchor.re - off.re;
+      state.cy = drag.anchor.im - off.im;
+      state.activePoint = null;
+      drag.moved = true;
+      afterCameraChange();
+      return;
+    }
+
+    if (!drag) return;
+    if (drag.mode === "pan") {
+      let dx = p.x - drag.startX;
+      let dy = p.y - drag.startY;
+      if (drag.lockAxis || event.ctrlKey) {
+        if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+        else dx = 0;
+      }
+      if (dx || dy) {
+        drag.moved = true;
+        panScreen(dx, dy, drag.cx, drag.cy);
+      }
+    } else if (drag.mode === "rotate") {
+      const a = Math.atan2(p.y - window.innerHeight * 0.5, p.x - window.innerWidth * 0.5);
+      drag.moved = true;
+      rotateTo(drag.angle - (a - drag.pointerAngle) * 180 / Math.PI);
+    }
+  });
+
+  function endPointer(event) {
+    activePointers.delete(event.pointerId);
+    try { surface.releasePointerCapture(event.pointerId); } catch (e) {}
+    surface.classList.remove("dragging", "rotating");
+    const moved = drag ? drag.moved : false;
+    if (activePointers.size === 0) {
+      drag = null;
+      if (moved) scheduleFull();
+    } else if (activePointers.size === 1) {
+      const [p] = [...activePointers.values()];
+      startPan({ button: 0, shiftKey: false, altKey: false }, p);
+    }
+  }
+
+  surface.addEventListener("pointerup", endPointer);
+  surface.addEventListener("pointercancel", endPointer);
+  surface.addEventListener("contextmenu", e => e.preventDefault());
+
+  surface.addEventListener("wheel", event => {
+    event.preventDefault();
+    const factor = Math.min(2, Math.max(0.5, Math.exp(-event.deltaY * 0.0012)));
+    zoomAt(event.clientX, event.clientY, factor);
+  }, { passive: false });
+
+  surface.addEventListener("dblclick", event => {
+    event.preventDefault();
+    // Normal double-click zooms in. Shift zooms out. Always from the center.
+    const cx = window.innerWidth * 0.5;
+    const cy = window.innerHeight * 0.5;
+    zoomAt(cx, cy, event.shiftKey ? 2.0 : 0.5);
+    scheduleFull();
+  });
+
+  surface.addEventListener("keydown", event => {
+    const tag = (event.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
+    const step = window.innerHeight * 0.08;
+    if (event.key === "ArrowLeft") { event.preventDefault(); nudgeScreen(-step, 0); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); nudgeScreen(step, 0); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); nudgeScreen(0, -step); }
+    else if (event.key === "ArrowDown") { event.preventDefault(); nudgeScreen(0, step); }
+    else if (event.key === "+" || event.key === "=") { event.preventDefault(); zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.8); }
+    else if (event.key === "-" || event.key === "_") { event.preventDefault(); zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25); }
+    else if (event.key === "q" || event.key === "Q") { event.preventDefault(); rotateTo(state.angle + 5); }
+    else if (event.key === "e" || event.key === "E") { event.preventDefault(); rotateTo(state.angle - 5); }
+    else if (event.key === "r" || event.key === "R") { event.preventDefault(); resetView(); }
+    else if (event.key === "t" || event.key === "T") { event.preventDefault(); toggleInvert(); }
+    else if (event.key === "i" || event.key === "I") { event.preventDefault(); toggleHelp(); }
+    else if (event.key === "h" || event.key === "H") { event.preventDefault(); toggleHud(); }
+    else if (event.key === "s" || event.key === "S") { event.preventDefault(); saveCurrentPoint(); }
+    else if (event.key === "p" || event.key === "P") { event.preventDefault(); togglePanel(); }
+    else if (event.key === "f" || event.key === "F") { event.preventDefault(); toggleFullscreen(); }
+    else if (event.key === "?") { event.preventDefault(); toggleHelp(); }
+  });
+
+  window.addEventListener("keydown", event => {
+    if (event.defaultPrevented || event.target === surface) return;
+    const tag = (event.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
+    if (event.key === "t" || event.key === "T") { event.preventDefault(); toggleInvert(); }
+    else if (event.key === "i" || event.key === "I") { event.preventDefault(); toggleHelp(); }
+    else if (event.key === "h" || event.key === "H") { event.preventDefault(); toggleHud(); }
+    else if (event.key === "?" || (event.key === "/" && event.shiftKey)) { event.preventDefault(); toggleHelp(); }
+    else if (event.key === "p" || event.key === "P") { event.preventDefault(); togglePanel(); }
+  });
+
+  function resetView() {
+    state.cx = DEFAULT_VIEW.cx;
+    state.cy = DEFAULT_VIEW.cy;
+    state.scale = DEFAULT_VIEW.scale;
+    state.angle = DEFAULT_VIEW.angle;
+    state.activePoint = null;
+    state.quality = "full";
+    state.maxIter = 0;
+    cpuLastSignature = null;
+    updateHud();
+    syncNavigateFields();
+    requestRender();
+    schedulePersist();
+    setStatus("View reset.");
+  }
+
+  function toggleInvert() {
+    state.invert = !state.invert;
+    state.quality = "full";
+    cpuLastSignature = null;
+    requestRender();
+    setStatus(state.invert ? "Invert on (T)." : "Invert off (T).");
+  }
+
+  function toggleHud(force) {
+    const hidden = document.body.classList.contains("clean-view");
+    const show = typeof force === "boolean" ? force : hidden;
+    document.body.classList.toggle("clean-view", !show);
+    if (!show) setStatus("");
+    else setStatus("Interface shown (H).");
+  }
+
+  function togglePanel(force) {
+    const panel = $("pointsPanel");
+    const show = typeof force === "boolean" ? force : panel.hidden;
+    panel.hidden = !show;
+    $("pointsBtn").classList.toggle("active", show);
+  }
+
+  function toggleHelp(force) {
+    const help = $("helpPanel");
+    const show = typeof force === "boolean" ? force : help.hidden;
+    help.hidden = !show;
+    $("helpBtn").classList.toggle("active", show);
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
+  /* ── UI wiring ───────────────────────────────────────── */
+
+  $("saveBtn").addEventListener("click", saveCurrentPoint);
+  $("panelSaveBtn").addEventListener("click", saveCurrentPoint);
+  $("exportBtn").addEventListener("click", exportPoints);
+  $("uploadBtn").addEventListener("click", () => $("importFile").click());
+  $("defaultsBtn").addEventListener("click", loadEditorPoints);
+  $("defaultsToggleBtn").addEventListener("click", toggleDefaultPoints);
+  $("selectAllBtn").addEventListener("click", () => selectVisible(true));
+  $("selectNoneBtn").addEventListener("click", () => selectVisible(false));
+  $("importFile").addEventListener("change", event => importPointsFile(event.target.files[0]));
+  $("pointsBtn").addEventListener("click", () => togglePanel());
+  $("panelCloseBtn").addEventListener("click", () => togglePanel(false));
+  $("helpBtn").addEventListener("click", () => toggleHelp());
+  $("helpCloseBtn").addEventListener("click", () => toggleHelp(false));
+  $("pointName").addEventListener("keydown", event => {
+    if (event.key === "Enter") { event.preventDefault(); saveCurrentPoint(); }
+  });
+
+  $("navGoBtn").addEventListener("click", navigateToInputs);
+  ["navScale", "navX", "navY"].forEach(id => {
+    $(id).addEventListener("keydown", event => {
+      if (event.key === "Enter") { event.preventDefault(); navigateToInputs(); }
+    });
+  });
+
+  $("pointsList").addEventListener("change", event => {
+    const pick = event.target.closest("[data-include]");
+    if (!pick) return;
+    setPointIncluded(Number(pick.dataset.include), pick.checked);
+  });
+
+  $("pointsList").addEventListener("click", event => {
+    const copy = event.target.closest("[data-copy]");
+    if (copy) {
+      event.preventDefault();
+      const i = Number(copy.dataset.copy);
+      if (Number.isInteger(i) && state.points[i]) copyPointValues(state.points[i], "Copied");
+      return;
+    }
+    const up = event.target.closest("[data-up]");
+    if (up) {
+      event.preventDefault();
+      movePoint(Number(up.dataset.up), -1);
+      return;
+    }
+    const down = event.target.closest("[data-down]");
+    if (down) {
+      event.preventDefault();
+      movePoint(Number(down.dataset.down), 1);
+      return;
+    }
+    const del = event.target.closest("[data-del]");
+    if (del) {
+      event.preventDefault();
+      deletePoint(Number(del.dataset.del));
+      return;
+    }
+    const go = event.target.closest("[data-point]");
+    if (!go) return;
+    const i = Number(go.dataset.point);
+    if (Number.isInteger(i) && state.points[i]) setView(state.points[i]);
+  });
+
+  window.addEventListener("resize", () => {
+    state.quality = "full";
+    cpuLastSignature = null;
+    requestRender();
+  });
+
+  window.addEventListener("beforeunload", () => {
+    persistView();
+    persistPoints();
+  });
+
+  /* ── boot ────────────────────────────────────────────── */
+
+  function boot() {
+    try {
+      initGL();
+    } catch (error) {
+      console.error(error);
+      loading.classList.add("error");
+      loading.textContent = "WebGL2 is required. Open this page in a recent desktop Chrome, Edge, Firefox, or Safari.";
+      return;
+    }
+
+    state.points = loadStoredPoints();
+    state.hideDefaults = loadHideDefaults();
+    const savedView = loadStoredView();
+    if (savedView) {
+      state.cx = savedView.cx;
+      state.cy = savedView.cy;
+      state.scale = savedView.scale;
+      state.angle = savedView.angle;
+    }
+
+    renderPoints();
+    updateHud();
+    syncNavigateFields();
+    $("pointsPanel").hidden = false;
+    $("pointsBtn").classList.add("active");
+    setStatus("Drag to pan · ctrl locks axis · wheel zoom · double-click zoom.");
+    state.quality = "full";
+    render();
+    loading.hidden = true;
+    surface.focus();
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
